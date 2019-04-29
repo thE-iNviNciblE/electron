@@ -224,20 +224,19 @@ void ResolveOrRejectPromiseInUI(util::Promise promise, int net_error) {
 // Callback of HttpCache::GetBackend.
 void OnGetBackend(disk_cache::Backend** backend_ptr,
                   Session::CacheAction action,
-                  const util::CopyablePromise& promise,
+                  util::Promise promise,
                   int result) {
   if (result != net::OK) {
     std::string err_msg =
         "Failed to retrieve cache backend: " + net::ErrorToString(result);
-    util::Promise::RejectPromise(promise.GetPromise(), std::move(err_msg));
+    util::Promise::RejectPromise(std::move(promise), std::move(err_msg));
   } else if (backend_ptr && *backend_ptr) {
     if (action == Session::CacheAction::CLEAR) {
-      auto success =
-          (*backend_ptr)
-              ->DoomAllEntries(base::BindOnce(&ResolveOrRejectPromiseInUI,
-                                              promise.GetPromise()));
+      auto success = (*backend_ptr)
+                         ->DoomAllEntries(base::BindOnce(
+                             &ResolveOrRejectPromiseInUI, std::move(promise)));
       if (success != net::ERR_IO_PENDING)
-        ResolveOrRejectPromiseInUI(promise.GetPromise(), success);
+        ResolveOrRejectPromiseInUI(std::move(promise), success);
     } else if (action == Session::CacheAction::STATS) {
       base::StringPairs stats;
       (*backend_ptr)->GetStats(&stats);
@@ -245,8 +244,7 @@ void OnGetBackend(disk_cache::Backend** backend_ptr,
         if (stat.first == "Current size") {
           int current_size;
           base::StringToInt(stat.second, &current_size);
-          util::Promise::ResolvePromise<int>(promise.GetPromise(),
-                                             current_size);
+          util::Promise::ResolvePromise<int>(std::move(promise), current_size);
           break;
         }
       }
@@ -271,9 +269,8 @@ void DoCacheActionInIO(
   // Call GetBackend and make the backend's ptr accessable in OnGetBackend.
   using BackendPtr = disk_cache::Backend*;
   auto** backend_ptr = new BackendPtr(nullptr);
-  net::CompletionOnceCallback on_get_backend =
-      base::BindOnce(&OnGetBackend, base::Owned(backend_ptr), action,
-                     util::CopyablePromise(promise));
+  net::CompletionOnceCallback on_get_backend = base::BindOnce(
+      &OnGetBackend, base::Owned(backend_ptr), action, std::move(promise));
   int rv = http_cache->GetBackend(backend_ptr, std::move(on_get_backend));
   if (rv != net::ERR_IO_PENDING)
     std::move(on_get_backend).Run(net::OK);
