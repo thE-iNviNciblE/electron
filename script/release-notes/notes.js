@@ -9,6 +9,9 @@ const { GitProcess } = require('dugite')
 const octokit = require('@octokit/rest')()
 const semver = require('semver')
 
+const MAX_FAIL_COUNT = 3
+const CHECK_INTERVAL = 30000
+
 const CACHE_DIR = path.resolve(__dirname, '.cache')
 const NO_NOTES = 'No notes'
 const FOLLOW_REPOS = [ 'electron/electron', 'electron/libchromiumcontent', 'electron/node' ]
@@ -300,33 +303,50 @@ const checkCache = async (name, operation) => {
 
 const getPullRequest = async (number, owner, repo) => {
   const name = `${owner}-${repo}-pull-${number}`
+
   return checkCache(name, async () => {
-    try {
-      return await octokit.pulls.get({ number, owner, repo })
-    } catch (error) {
-      // Silently eat 404s.
-      // We can get a bad pull number if someone manually lists
-      // an issue number in PR number notation, e.g. 'fix: foo (#123)'
-      if (error.code !== 404) {
-        throw error
-      }
+    let failCount = 0
+    const tryGetPR = () => {
+      octokit.pulls.get({ number, owner, repo })
+        .then(result => {
+          return result
+        }).catch(error => {
+          if (failCount === MAX_FAIL_COUNT) {
+            // Silently eat 404s.
+            // We can get a bad pull number if someone manually lists
+            // an issue number in PR number notation, e.g. 'fix: foo (#123)'
+            if (error.code !== 404) throw error
+          } else {
+            failCount++
+            setTimeout(tryGetPR, CHECK_INTERVAL)
+          }
+        })
     }
+    tryGetPR()
   })
 }
 
 const getComments = async (number, owner, repo) => {
   const name = `${owner}-${repo}-pull-${number}-comments`
   return checkCache(name, async () => {
-    try {
-      return await octokit.issues.listComments({ number, owner, repo, per_page: 100 })
-    } catch (error) {
-      // Silently eat 404s.
-      // We can get a bad pull number if someone manually lists
-      // an issue number in PR number notation, e.g. 'fix: foo (#123)'
-      if (error.code !== 404) {
-        throw error
-      }
+    let failCount = 0
+    const tryGetComments = () => {
+      octokit.issues.listComments({ number, owner, repo, per_page: 100 })
+        .then(result => {
+          return result
+        }).catch(error => {
+          if (failCount === MAX_FAIL_COUNT) {
+            // Silently eat 404s.
+            // We can get a bad pull number if someone manually lists
+            // an issue number in PR number notation, e.g. 'fix: foo (#123)'
+            if (error.code !== 404) throw error
+          } else {
+            failCount++
+            setTimeout(tryGetComments, CHECK_INTERVAL)
+          }
+        })
     }
+    tryGetComments()
   })
 }
 
